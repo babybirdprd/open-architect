@@ -1,22 +1,23 @@
+# src/oa_cli.py
 import argparse
 from dotenv import load_dotenv
 from threading import Thread
 import os
 from src.helpers.github import GHHelper
-from src.helpers.trello import TrelloHelper
+# from src.helpers.trello import TrelloHelper
 from src.agents.intern import Intern
 from src.agents.reviewer import Reviewer
 
 
-def start_intern(gh_helper_intern, trello_helper):
-    intern = Intern("Alex", gh_helper=gh_helper_intern, board_helper=trello_helper)
+def start_intern(gh_helper_intern, tasks): #, trello_helper):
+    intern = Intern("Alex", gh_helper=gh_helper_intern, tasks=tasks) #, board_helper=trello_helper)
     intern_thread = Thread(target=intern.run)
     intern_thread.start()
 
 
-def start_reviewer(gh_helper_reviewer, trello_helper):
+def start_reviewer(gh_helper_reviewer, tasks): #, trello_helper):
     reviewer = Reviewer(
-        "Charlie", gh_helper=gh_helper_reviewer, board_helper=trello_helper
+        "Charlie", gh_helper=gh_helper_reviewer, tasks=tasks #, board_helper=trello_helper
     )
     reviewer_thread = Thread(target=reviewer.run)
     reviewer_thread.start()
@@ -36,20 +37,20 @@ def main():
     gh_api_token_intern = os.getenv("GITHUB_TOKEN_INTERN")
     gh_api_token_reviewer = os.getenv("GITHUB_TOKEN_REVIEWER")
     openai_api_key = os.getenv("OPENAI_API_KEY")
-    trello_api_key = os.getenv("TRELLO_API_KEY")
-    trello_api_secret = os.getenv("TRELLO_API_SECRET")
-    trello_token = os.getenv("TRELLO_TOKEN")
-    trello_board_id = os.getenv("TRELLO_BOARD_ID")
+    # trello_api_key = os.getenv("TRELLO_API_KEY")
+    # trello_api_secret = os.getenv("TRELLO_API_SECRET")
+    # trello_token = os.getenv("TRELLO_TOKEN")
+    # trello_board_id = os.getenv("TRELLO_BOARD_ID")
 
     if (
         gh_repo is None
         or gh_api_token_intern is None
         or gh_api_token_reviewer is None
         or openai_api_key is None
-        or trello_api_key is None
-        or trello_api_secret is None
-        or trello_token is None
-        or trello_board_id is None
+        # or trello_api_key is None
+        # or trello_api_secret is None
+        # or trello_token is None
+        # or trello_board_id is None
     ):
         print(
             "Please run the init_connections.py script to set up the environment variables"
@@ -58,14 +59,23 @@ def main():
 
     gh_helper_intern = GHHelper(gh_api_token_intern, gh_repo)
     gh_helper_reviewer = GHHelper(gh_api_token_reviewer, gh_repo)
-    trello_helper = TrelloHelper(trello_api_key, trello_token, trello_board_id)
+    # trello_helper = TrelloHelper(trello_api_key, trello_token, trello_board_id)
+
+    tasks = {
+                'Backlog': [],
+                'To Do': [],
+                'WIP': [],
+                'Ready for Review': [],
+                'Reviewed': [],
+                'Approved': []
+            }
 
     if args.command == "run":
         for agent in args.agents:
             if agent == "intern":
-                start_intern(gh_helper_intern, trello_helper)
+                start_intern(gh_helper_intern, tasks) #, trello_helper)
             elif agent == "reviewer":
-                start_reviewer(gh_helper_reviewer, trello_helper)
+                start_reviewer(gh_helper_reviewer, tasks) #, trello_helper)
 
 
 if __name__ == "__main__":

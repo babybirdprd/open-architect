@@ -1,13 +1,13 @@
 from random import choice
 import time
 from threading import Thread
-from typing import List
+from typing import List, Dict
 
 from src.lib.terminal import colorize
 from src.agents.intern.processors import better_code_change, generate_code_change
 from src.models import Ticket
 from src.helpers.github import GHHelper
-from src.helpers.board import BoardHelper
+# from src.helpers.board import BoardHelper
 
 REFRESH_EVERY = 5
 PROCESS_EVERY = 5
@@ -16,13 +16,14 @@ MAX_PROCESS_CYCLES_WITHOUT_WORK = 10000
 
 
 class Intern:
-    def __init__(self, name, gh_helper: GHHelper, board_helper: BoardHelper):
+    def __init__(self, name, gh_helper: GHHelper, tasks: Dict[str, List[Ticket]]): #, board_helper: BoardHelper):
         self.name = name
-        self.id = choice(board_helper.get_intern_list())
+        # self.id = choice(board_helper.get_intern_list())
         self.ticket_todo_list: List[Ticket] = []
         self.pr_backlog = []
         self.gh_helper = gh_helper
-        self.board_helper = board_helper
+        self.tasks = tasks
+        # self.board_helper = board_helper
         self.fetch_thread = Thread(target=self.refresh_loop)
         self.process_thread = Thread(target=self.process_loop)
         self.log_name = colorize(f"[{self.name} the intern]", bold=True, color="red")
@@ -60,13 +61,15 @@ class Intern:
 
     def process_pr(self):
         pr = self.pr_backlog.pop(0)
-        self.board_helper.move_to_wip(pr.ticket_id)
+        # self.board_helper.move_to_wip(pr.ticket_id)
+        self.move_task(pr.ticket_id, 'WIP')
         comment = self.gh_helper.get_comments(pr)
         # Do some processing with LLMs, create a new code_change
         code_change = generate_code_change("", comment)
         self.gh_helper.push_changes(code_change, pr.ticket_id, pr.assignee_id)
         print(f"[{self.log_name}] Moving card to waiting for review")
-        self.board_helper.move_to_waiting_for_review(pr.ticket_id)
+        # self.board_helper.move_to_waiting_for_review(pr.ticket_id)
+        self.move_task(pr.ticket_id, 'Ready for Review')
 
     def process_ticket(self):
         # Get the first ticket from the backlog
@@ -76,7 +79,8 @@ class Intern:
         print(f'{self.log_name} Starting to work on ticket "{ticket.title:.30}..."')
 
         # Move ticket to WIP
-        self.board_helper.move_to_wip(ticket.id)
+        # self.board_helper.move_to_wip(ticket.id)
+        self.move_task(ticket.id, 'WIP')
 
         # There should not be some PRs already assigned to this ticket (for now)
         # Call an agent to create a PR
@@ -96,7 +100,8 @@ class Intern:
             author_id=ticket.assignee_id,
         )
 
-        self.board_helper.move_to_waiting_for_review(ticket_id=ticket.id)
+        # self.board_helper.move_to_waiting_for_review(ticket_id=ticket.id)
+        self.move_task(ticket.id, 'Ready for Review')
         print(f"{self.log_name} PR Created! Feel free to review it!")
 
     def refresh_loop(self):
@@ -139,3 +144,22 @@ class Intern:
         # The second one consumes the backlogs and processes the tickets and PRs
         self.fetch_thread.start()
         self.process_thread.start()
+    
+    def move_task(self, task_id: str, target_column: str):
+        """Moves a task from its current column to the target column."""
+        for column_name, tasks in self.tasks.items():
+            for i, task in enumerate(tasks):
+                if task.id == task_id:
+                    # Remove task from its current column
+                    del self.tasks[column_name][i]
+
+                    # Add task to the target column
+                    task.status = target_column
+                    self.tasks[target_column].append(task)
+
+                    # Reset drag and drop state
+                    # st.session_state.drag_source = None
+                    # st.experimental_set_query_params(drag_source=None, drop_target=None)
+                    return
+
+

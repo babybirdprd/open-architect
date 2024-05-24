@@ -1,15 +1,22 @@
+# src/agents/architect/__init__.py
 import json
-from typing import Any, List
+from typing import Any, List, Dict
 
 from pydantic import BaseModel
 from openai import OpenAI
 import streamlit as st
 
 from src.helpers.github import GHHelper
-from src.helpers.board import BoardHelper
+# from src.helpers.board import BoardHelper
 from src.lib.terminal import colorize
 from src.models import Ticket
 
+# Define a simple data structure for tasks
+class Task(BaseModel):
+    id: str
+    title: str
+    description: str
+    status: str
 
 class ArchitectAgentRequest(BaseModel):
     question: str
@@ -32,14 +39,25 @@ class ReferenceExistingCodeRequest(BaseModel):
     history: Any
 
 class Architect:
-    def __init__(self, name, gh_helper: GHHelper, board_helper: BoardHelper):
+    def __init__(self, name, gh_helper: GHHelper): #, board_helper: BoardHelper):
         self.name = name
         self.gh_helper = gh_helper
-        self.board_helper = board_helper
+        # self.board_helper = board_helper
         self.log_name = colorize(f"[{self.name} the Architect]", bold=True, color="green")
         print(
             f"{self.log_name} Nice to meet you, I'm {self.name} the Architect! I'm here to help you break down your tasks into smaller tickets and create them for you! 🏗️🔨📝"
         )
+
+        # Initialize tasks if not already in session state
+        if 'tasks' not in st.session_state:
+            st.session_state.tasks = {
+                'Backlog': [],
+                'To Do': [],
+                'WIP': [],
+                'Ready for Review': [],
+                'Reviewed': [],
+                'Approved': []
+            }
 
     def run(self):
         # Step 1: Create a chat interface
@@ -70,6 +88,9 @@ class Architect:
                 res = st.write(response)
 
             st.session_state.messages.append({"role": "assistant", "content": response})
+
+        # Display the Kanban board
+        self.display_kanban_board()
 
     def compute_response(self, architectAgentRequest: ArchitectAgentRequest):
         """
@@ -116,7 +137,7 @@ class Architect:
                 "type": "function",
                 "function": {
                     "name": "create_tasks",
-                    "description": "When the user asks to create tasks or create tickets in trello, call create tickets. Create tickets based on the subtasks that are generated for the task.  This will actually take the subtasks generated and create the trello tickets for them.",
+                    "description": "When the user asks to create tasks or create tickets, call create tickets. Create tickets based on the subtasks that are generated for the task.  This will actually take the subtasks generated and create the tickets for them.",
                     "parameters": {"type": "object", "properties": {}, "required": []},
                 },
             },
@@ -286,13 +307,14 @@ class Architect:
             tickets = []
             ticket_titles = []
             for subtask in subtask_json:
-                ticket = Ticket(title=subtask["title"], description=subtask["description"])
+                ticket = Task(id=str(len(st.session_state.tasks['Backlog'])), title=subtask["title"], description=subtask["description"], status='Backlog')
                 tickets.append(ticket)
                 ticket_titles.append(ticket.title)
 
-            createdTickets = self.board_helper.push_tickets_to_backlog_and_assign(tickets)
+            # createdTickets = self.board_helper.push_tickets_to_backlog_and_assign(tickets)
+            st.session_state.tasks['Backlog'].extend(tickets)
 
-            ticketMarkdown = generate_ticket_markdown(createdTickets)
+            ticketMarkdown = generate_ticket_markdown(tickets)
 
             return "Great! I've just created the following tickets and assigned them to our agents to get started on immediately \n" + ticketMarkdown
         
@@ -353,11 +375,53 @@ class Architect:
             print("Failed to generate subtasks with error " + str(e))
             return "Failed to generate subtasks with error " + str(e)
 
+    def display_kanban_board(self):
+        """Displays the Kanban board in Streamlit."""
+        st.markdown("## Kanban Board")
+        columns = st.columns(len(st.session_state.tasks))
 
-def generate_ticket_markdown(tickets: List[Ticket]):
+        for i, (column_name, tasks) in enumerate(st.session_state.tasks.items()):
+            with columns[i]:
+                st.markdown(f"### {column_name}")
+                for task in tasks:
+                    st.markdown(f"**{task.title}**")
+                    st.write(task.description)
+
+                    # Add drag and drop functionality (using Streamlit's experimental feature)
+                    if 'drag_source' in st.session_state and st.session_state.drag_source == task.id:
+                        st.experimental_set_query_params(drag_source=task.id)
+                    else:
+                        st.experimental_set_query_params(drag_source=None)
+                    st.markdown("---")
+
+        # Handle drag and drop events
+        if 'drag_source' in st.experimental_get_query_params() and st.experimental_get_query_params()['drag_source'][0]:
+            source_task_id = st.experimental_get_query_params()['drag_source'][0]
+            st.session_state.drag_source = source_task_id
+
+            if 'drop_target' in st.experimental_get_query_params() and st.experimental_get_query_params()['drop_target'][0]:
+                target_column = st.experimental_get_query_params()['drop_target'][0]
+                self.move_task(source_task_id, target_column)
+
+    def move_task(self, task_id: str, target_column: str):
+        """Moves a task from its current column to the target column."""
+        for column_name, tasks in st.session_state.tasks.items():
+            for i, task in enumerate(tasks):
+                if task.id == task_id:
+                    # Remove task from its current column
+                    del st.session_state.tasks[column_name][i]
+
+                    # Add task to the target column
+                    task.status = target_column
+                    st.session_state.tasks[target_column].append(task)
+
+                    # Reset drag and drop state
+                    st.session_state.drag_source = None
+                    st.experimental_set_query_params(drag_source=None, drop_target=None)
+                    return
+
+def generate_ticket_markdown(tickets: List[Task]):
     markdown = ""
     for ticket in tickets:
         markdown += f"- **{ticket.title}**: {ticket.description}\n"
     return markdown
-    
-    
